@@ -5,13 +5,15 @@ import subprocess
 
 def procesar_datos():
     print("1. Leyendo archivos CSV...")
-    # Agregamos encoding='latin1' a ambas líneas
     df_ftth = pd.read_csv('Edificios_FTTH.csv', sep=';', low_memory=False, encoding='latin1')
     df_amba = pd.read_csv('Edificios_AMBA.csv', sep=';', low_memory=False, encoding='latin1')
 
     print("2. Filtrando y limpiando datos...")
-    # Filtrar subregiones
-    df_ftth = df_ftth[df_ftth['SUBREGION_OORR'].isin(['CAPITAL NORTE', 'CAPITAL SUR'])].copy()
+    # Filtrar subregiones y activos estrictamente en estado OPERATIVO
+    df_ftth = df_ftth[
+        (df_ftth['SUBREGION_OORR'].isin(['CAPITAL NORTE', 'CAPITAL SUR'])) &
+        (df_ftth['ESTADO'] == 'OPERATIVO')
+    ].copy()
 
     # Limpiar NAP, PD y PC
     df_ftth['NAP'] = df_ftth['NAP'].fillna('Sin dato NAP')
@@ -36,7 +38,7 @@ def procesar_datos():
     df_amba_sec['ALTURA'] = df_amba_sec['ALTURA'].apply(clean_altura)
     
     secundarias_agrupadas = df_amba_sec.groupby('EDIFICIO').apply(
-        lambda x: x[['CALLE', 'ALTURA']].to_dict('records')
+        lambda x: x[['CALLE', 'ALTURA']].to_dict('records'), include_groups=False
     ).reset_index(name='DIRECCIONES_SECUNDARIAS')
 
     df_final = pd.merge(df_ftth, secundarias_agrupadas, left_on='ACTIVO', right_on='EDIFICIO', how='left')
@@ -47,7 +49,7 @@ def procesar_datos():
     df_app = df_final[columnas].copy()
     
     df_app.to_json('Maestro_Edificios_CABA_App.json', orient='records', force_ascii=False)
-    print(f" -> JSON generado con {len(df_app)} activos.")
+    print(f" -> JSON generado con {len(df_app)} activos operativos.")
 
 def generar_html():
     print("4. Generando index.html con formularios dinámicos...")
