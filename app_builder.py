@@ -157,15 +157,27 @@ def generar_html():
             }
 
             const resultados = maestroDatos.filter(edif => {
-                // Filtros exactos opcionales
+                // Filtros exactos (Subregión, PD, PC)
                 if (subregion && edif.SUBREGION_OORR !== subregion) return false;
                 if (pd && edif.PD !== pd) return false;
                 if (pc && edif.PC !== pc) return false;
                 
-                // Filtros de búsqueda parcial / progresiva
-                if (nap && !edif.NAP.includes(nap)) return false;
-                if (calle && !edif.CALLE.includes(calle)) return false;
-                if (altura && !String(edif.ALTURA).startsWith(altura)) return false;
+                // NAP parcial (A prueba de nulos)
+                if (nap && !(edif.NAP || "").toUpperCase().includes(nap)) return false;
+
+                // CALLE: Busca coincidencias parciales en la Principal o en CUALQUIER Secundaria
+                if (calle) {
+                    const matchPrincipal = (edif.CALLE || "").toUpperCase().includes(calle);
+                    const matchSecundaria = edif.DIRECCIONES_SECUNDARIAS.some(sec => (sec.CALLE || "").toUpperCase().includes(calle));
+                    if (!matchPrincipal && !matchSecundaria) return false;
+                }
+
+                // ALTURA: Búsqueda progresiva en la Principal o en CUALQUIER Secundaria
+                if (altura) {
+                    const matchPrincipal = String(edif.ALTURA || "").startsWith(altura);
+                    const matchSecundaria = edif.DIRECCIONES_SECUNDARIAS.some(sec => String(sec.ALTURA || "").startsWith(altura));
+                    if (!matchPrincipal && !matchSecundaria) return false;
+                }
                 
                 return true;
             });
