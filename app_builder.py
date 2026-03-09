@@ -59,7 +59,6 @@ def generar_html():
     <title>Relevamiento FTTH - CABA AF</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
-        // Paleta de colores Personal / Telecom
         tailwind.config = {
             theme: {
                 extend: {
@@ -82,13 +81,12 @@ def generar_html():
 
         // ⚠️ PEGAR AQUÍ TU CONFIGURACIÓN DE FIREBASE ⚠️
         const firebaseConfig = {
-        apiKey: "AIzaSyC1yyZ2N3t8nbtgECkshjl4MBgnjOtJj7M",
-        authDomain: "relevos-9645a.firebaseapp.com",
-        projectId: "relevos-9645a",
-        storageBucket: "relevos-9645a.firebasestorage.app",
-        messagingSenderId: "816456413666",
-        appId: "1:816456413666:web:b0202740d9cb40a6f309bb",
-        measurementId: "G-XXC9KMQZB2"
+            apiKey: "TU_API_KEY",
+            authDomain: "TU_PROYECTO.firebaseapp.com",
+            projectId: "TU_PROYECTO",
+            storageBucket: "TU_PROYECTO.appspot.com",
+            messagingSenderId: "TUS_NUMEROS",
+            appId: "TU_APP_ID"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -101,7 +99,6 @@ def generar_html():
         let maestroDatos = [];
         let usuarioActual = null;
 
-        // --- AUTENTICACIÓN ---
         onAuthStateChanged(auth, async (user) => {
             if (user) {
                 usuarioActual = user;
@@ -134,15 +131,14 @@ def generar_html():
         document.getElementById('btn-login').addEventListener('click', () => signInWithPopup(auth, provider));
         document.getElementById('btn-logout').addEventListener('click', () => signOut(auth));
 
-        // --- CARGA Y FILTROS ---
         async function cargarDatosJSON() {
             try {
                 const response = await fetch('./Maestro_Edificios_CABA_App.json?t=' + new Date().getTime());
                 maestroDatos = await response.json();
-                document.getElementById('status-db').innerText = `Base de datos lista (${maestroDatos.length} activos)`;
+                document.getElementById('status-db').innerText = `Base lista (${maestroDatos.length} activos)`;
             } catch (error) {
                 console.error("Error:", error);
-                document.getElementById('status-db').innerHTML = '<span class="text-red-500">Error al cargar la base maestra.</span>';
+                document.getElementById('status-db').innerHTML = '<span class="text-red-500">Error en carga</span>';
             }
         }
 
@@ -154,33 +150,41 @@ def generar_html():
             const calle = document.getElementById('filt-calle').value.trim().toUpperCase();
             const altura = document.getElementById('filt-altura').value.trim();
 
-            if (!subregion || !pd) {
-                alert("Es obligatorio ingresar al menos la Subregión y el PD para buscar.");
+            if (!subregion && !pd && !pc && !nap && !calle && !altura) {
+                alert("Por favor, ingrese al menos un filtro para buscar.");
                 return;
             }
 
-            // Filtrar el array gigante
             const resultados = maestroDatos.filter(edif => {
-                if (edif.SUBREGION_OORR !== subregion) return false;
-                if (edif.PD !== pd) return false;
+                // Filtros exactos opcionales
+                if (subregion && edif.SUBREGION_OORR !== subregion) return false;
+                if (pd && edif.PD !== pd) return false;
                 if (pc && edif.PC !== pc) return false;
+                
+                // Filtros de búsqueda parcial / progresiva
                 if (nap && !edif.NAP.includes(nap)) return false;
                 if (calle && !edif.CALLE.includes(calle)) return false;
-                if (altura && edif.ALTURA !== altura) return false;
+                if (altura && !String(edif.ALTURA).startsWith(altura)) return false;
+                
                 return true;
             });
 
-            document.getElementById('resultados-count').innerText = `Resultados encontrados: ${resultados.length}`;
-            renderTarjetas(resultados);
+            const maxResultados = 150;
+            if (resultados.length > maxResultados) {
+                document.getElementById('resultados-count').innerHTML = `<span class="text-red-500 font-bold">¡Demasiados resultados (${resultados.length})!</span> Mostrando los primeros ${maxResultados} para cuidar la memoria. Refiná tu búsqueda.`;
+                renderTarjetas(resultados.slice(0, maxResultados));
+            } else {
+                document.getElementById('resultados-count').innerText = `Resultados encontrados: ${resultados.length}`;
+                renderTarjetas(resultados);
+            }
         };
 
-        // --- RENDERIZADO DE TARJETAS ---
         async function renderTarjetas(datosFiltrados) {
             const container = document.getElementById('cards-container');
             container.innerHTML = '';
             
             if (datosFiltrados.length === 0) {
-                container.innerHTML = '<p class="text-center text-gray-500 mt-8">No se encontraron direcciones con estos filtros.</p>';
+                container.innerHTML = '<p class="text-center text-gray-500 mt-8">No se encontraron direcciones.</p>';
                 return;
             }
 
@@ -193,8 +197,14 @@ def generar_html():
                 const card = document.createElement('div');
                 card.className = `p-4 border rounded-xl shadow-sm mb-4 ${estaRelevado ? 'bg-green-50 border-green-500' : 'bg-white border-gray-200'}`;
                 
+                // --- SANGRADO Y ESTILO DE DIRECCIONES SECUNDARIAS ---
                 let htmlSecundarias = edif.DIRECCIONES_SECUNDARIAS.length > 0 
-                    ? `<div class="mt-2 p-2 bg-gray-50 rounded text-xs text-gray-600 border"><span class="font-bold text-personal-navy">Secundarias:</span><br> ${edif.DIRECCIONES_SECUNDARIAS.map(s => s.CALLE + ' ' + s.ALTURA).join(' | ')}</div>` 
+                    ? `<div class="mt-2 ml-4 pl-3 border-l-2 border-personal-cyan">
+                        <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Direcciones Secundarias:</span>
+                        <ul class="text-xs text-gray-700 mt-1 space-y-1">
+                            ${edif.DIRECCIONES_SECUNDARIAS.map(s => `<li>• ${s.CALLE} <b>${s.ALTURA}</b></li>`).join('')}
+                        </ul>
+                       </div>` 
                     : '';
 
                 if (estaRelevado) {
@@ -203,6 +213,7 @@ def generar_html():
                             <span class="text-xs font-bold text-gray-400">ID: ${edif.ACTIVO} | NAP: ${edif.NAP}</span>
                         </div>
                         <h3 class="text-xl font-bold text-personal-navy">${edif.CALLE} ${edif.ALTURA}</h3>
+                        ${htmlSecundarias}
                         <div class="my-3 p-3 bg-green-100 rounded border border-green-200">
                             <p class="text-green-800 font-bold text-sm">✅ ${datosRelevo.accion}</p>
                             <p class="text-green-700 text-xs mt-1">Relevado por: ${datosRelevo.tecnico}<br>Fecha: ${datosRelevo.fecha}</p>
@@ -246,7 +257,7 @@ def generar_html():
                                 <input type="file" id="fotos-${edif.ACTIVO}" multiple accept="image/*" class="w-2/3 text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-personal-cyan file:text-white hover:file:bg-personal-hover">
                             </div>
                             
-                            <button onclick="enviarRelevo('${edif.ACTIVO}')" class="w-full bg-personal-cyan text-white p-3 rounded-lg font-bold shadow-md hover:bg-personal-hover transition duration-200 mt-2">ENVIAR RELEVAMIENTO</button>
+                            <button onclick="enviarRelevo('${edif.ACTIVO}')" class="w-full bg-personal-cyan text-white p-3 rounded-lg font-bold shadow-md hover:bg-personal-hover transition mt-2">ENVIAR RELEVAMIENTO</button>
                         </div>
                     `;
                 }
@@ -254,7 +265,6 @@ def generar_html():
             }
         }
 
-        // --- LÓGICA DE ENVÍO Y COMPRESIÓN (Se mantiene igual, solo cambios cosméticos) ---
         window.enviarRelevo = async (activo) => {
             const accion = document.getElementById(`accion-${activo}`).value;
             const obs = document.getElementById(`obs-${activo}`).value;
@@ -264,7 +274,7 @@ def generar_html():
             if (inputFotos.files.length > 8) { alert("Máximo 8 fotos permitidas."); return; }
 
             const btn = event.target;
-            btn.innerText = "Procesando fotos y subiendo..."; 
+            btn.innerText = "Procesando..."; 
             btn.classList.add('opacity-75', 'cursor-not-allowed');
             btn.disabled = true;
 
@@ -286,7 +296,7 @@ def generar_html():
                     await setDoc(doc(db, "relevamientos", activo), {
                         fecha: payload.fecha, tecnico: payload.tecnico, accion: payload.accion, observacion: payload.observacion
                     });
-                    aplicarFiltros(); // Recarga la tarjeta actual
+                    aplicarFiltros(); 
                 } else {
                     alert("Error en servidor: " + result.message);
                     btn.innerText = "ENVIAR RELEVAMIENTO"; btn.disabled = false; btn.classList.remove('opacity-75', 'cursor-not-allowed');
@@ -324,87 +334,79 @@ def generar_html():
     </script>
 </head>
 <body class="bg-gray-100 min-h-screen font-sans">
-
     <div id="login-screen" class="flex flex-col items-center justify-center min-h-screen bg-personal-navy">
         <div class="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-sm w-full mx-4">
             <h1 class="text-3xl font-extrabold text-personal-navy tracking-tight mb-2">Despliegue AF</h1>
-            <p class="mb-8 text-gray-500 text-sm">Sistema de Relevamiento de Redes</p>
-            <button id="btn-login" class="w-full bg-personal-cyan text-white py-3 rounded-lg font-bold shadow-lg hover:bg-personal-hover transition">
-                Ingresar con Google
-            </button>
+            <p class="mb-8 text-gray-500 text-sm">Sistema de Relevamiento</p>
+            <button id="btn-login" class="w-full bg-personal-cyan text-white py-3 rounded-lg font-bold hover:bg-personal-hover">Ingresar con Google</button>
         </div>
     </div>
 
     <div id="warning-screen" class="hidden flex items-center justify-center min-h-screen bg-gray-100">
-        <div class="bg-white p-8 rounded-xl shadow border-t-4 border-yellow-400 text-center max-w-sm w-full mx-4">
-            <h2 class="text-xl font-bold text-gray-800 mb-2">Acceso Pendiente</h2>
-            <p class="text-gray-600 text-sm">Tu usuario está registrado pero requiere autorización del administrador.</p>
+        <div class="bg-white p-8 rounded-xl shadow border-t-4 border-yellow-400 text-center mx-4">
+            <h2 class="text-xl font-bold mb-2">Acceso Pendiente</h2>
+            <p class="text-sm">Requiere autorización del administrador.</p>
         </div>
     </div>
 
     <div id="app-screen" class="hidden max-w-md mx-auto bg-gray-100 min-h-screen flex flex-col">
-        
-        <div class="bg-personal-navy text-white px-4 py-3 sticky top-0 z-20 shadow-md flex justify-between items-center border-b-4 border-personal-cyan">
+        <div class="bg-personal-navy text-white px-4 py-3 sticky top-0 z-20 flex justify-between items-center border-b-4 border-personal-cyan">
             <div>
-                <h1 class="font-bold text-lg tracking-wide">Telecom <span class="text-personal-cyan">Relevo</span></h1>
+                <h1 class="font-bold tracking-wide">Telecom <span class="text-personal-cyan">Relevo</span></h1>
                 <p id="user-email" class="text-[10px] text-gray-300"></p>
             </div>
-            <button id="btn-logout" class="text-xs bg-white/10 hover:bg-white/20 border border-white/30 px-3 py-1.5 rounded transition">Salir</button>
+            <button id="btn-logout" class="text-xs bg-white/10 px-3 py-1.5 rounded">Salir</button>
         </div>
 
         <div class="bg-white shadow-sm z-10 p-4 border-b">
             <div class="flex justify-between items-center mb-3">
-                <h2 class="font-bold text-personal-navy text-sm">Buscador de Activos</h2>
-                <span id="status-db" class="text-[10px] text-gray-400 animate-pulse">Cargando base...</span>
+                <h2 class="font-bold text-personal-navy text-sm">Buscador</h2>
+                <span id="status-db" class="text-[10px] text-gray-400">Cargando...</span>
             </div>
             
             <div class="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Subregión (*)</label>
-                    <select id="filt-subregion" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm focus:ring-1 focus:ring-personal-cyan">
-                        <option value="">Seleccionar...</option>
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Subregión</label>
+                    <select id="filt-subregion" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm">
+                        <option value="">Todas</option>
                         <option value="CAPITAL NORTE">Capital Norte</option>
                         <option value="CAPITAL SUR">Capital Sur</option>
                     </select>
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">PD (*)</label>
-                    <input type="text" id="filt-pd" placeholder="Ej: VCRG" maxlength="4" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase focus:ring-1 focus:ring-personal-cyan">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">PD</label>
+                    <input type="text" id="filt-pd" placeholder="Ej: VCRG" maxlength="4" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">PC (Opcional)</label>
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">PC</label>
                     <input type="text" id="filt-pc" placeholder="Ej: VCRGB" maxlength="5" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">NAP (Opcional)</label>
-                    <input type="text" id="filt-nap" placeholder="Ej: VCRGB01" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">NAP</label>
+                    <input type="text" id="filt-nap" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
                 </div>
             </div>
 
             <div class="grid grid-cols-2 gap-3 mb-4">
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Calle (Opcional)</label>
-                    <input type="text" id="filt-calle" placeholder="Nombre calle" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Calle</label>
+                    <input type="text" id="filt-calle" placeholder="Nombre" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Altura (Opcional)</label>
-                    <input type="number" id="filt-altura" placeholder="Ej: 2471" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Altura</label>
+                    <input type="number" id="filt-altura" placeholder="Ej: 33" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm">
                 </div>
             </div>
 
-            <button onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded-lg shadow hover:bg-blue-900 transition flex justify-center items-center gap-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                BUSCAR DIRECCIONES
-            </button>
+            <button onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow">BUSCAR DIRECCIONES</button>
         </div>
 
         <div class="bg-gray-100 flex-1 p-4 pb-20">
-            <p id="resultados-count" class="text-xs text-gray-500 font-bold mb-3 text-center uppercase tracking-wider">Utilice los filtros para buscar</p>
-            <div id="cards-container">
-                </div>
+            <p id="resultados-count" class="text-xs text-gray-500 font-bold mb-3 text-center uppercase tracking-wider">Use los filtros para buscar</p>
+            <div id="cards-container"></div>
         </div>
     </div>
 </body>
