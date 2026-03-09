@@ -9,10 +9,16 @@ def procesar_datos():
     df_amba = pd.read_csv('Edificios_AMBA.csv', sep=';', low_memory=False, encoding='latin1')
 
     print("2. Filtrando y limpiando datos...")
-    # Filtrar subregiones y activos estrictamente en estado OPERATIVO
+    
+    # Limpieza preliminar de espacios en la calle para poder filtrar bien
+    df_ftth['CALLE'] = df_ftth['CALLE'].astype(str).str.strip()
+    
+    # Filtros: Subregión CABA, estado OPERATIVO y que CALLE no esté vacía ni sea 'nan'
     df_ftth = df_ftth[
         (df_ftth['SUBREGION_OORR'].isin(['CAPITAL NORTE', 'CAPITAL SUR'])) &
-        (df_ftth['ESTADO'] == 'OPERATIVO')
+        (df_ftth['ESTADO'] == 'OPERATIVO') &
+        (df_ftth['CALLE'] != '') &
+        (df_ftth['CALLE'].str.lower() != 'nan')
     ].copy()
 
     # Limpiar NAP, PD y PC
@@ -20,7 +26,7 @@ def procesar_datos():
     df_ftth['PD'] = df_ftth['NAP'].apply(lambda x: str(x)[:4] if len(str(x)) >= 4 and x != 'Sin dato NAP' else 'Sin dato PD')
     df_ftth['PC'] = df_ftth['NAP'].apply(lambda x: str(x)[:5] if len(str(x)) >= 5 and x != 'Sin dato NAP' else 'Sin dato PC')
 
-    # Función estricta para alturas
+    # Función estricta para alturas (permitimos que queden sin altura, pero las normalizamos)
     def clean_altura(val):
         if pd.isna(val) or str(val).strip() == "":
             return "No se encontro altura"
@@ -49,7 +55,7 @@ def procesar_datos():
     df_app = df_final[columnas].copy()
     
     df_app.to_json('Maestro_Edificios_CABA_App.json', orient='records', force_ascii=False)
-    print(f" -> JSON generado con {len(df_app)} activos operativos.")
+    print(f" -> JSON generado con {len(df_app)} activos operativos y con calle definida.")
 
 def generar_html():
     print("4. Generando index.html con formularios dinámicos...")
