@@ -104,25 +104,36 @@
             }
 
             const resultados = maestroDatos.filter(edif => {
-                // Filtros exactos (Subregión, PD, PC)
+                // 1. Filtros a nivel de edificio
                 if (subregion && edif.SUBREGION_OORR !== subregion) return false;
                 if (pd && edif.PD !== pd) return false;
                 if (pc && edif.PC !== pc) return false;
-                
-                // NAP parcial (A prueba de nulos)
                 if (nap && !(edif.NAP || "").toUpperCase().includes(nap)) return false;
 
-                // CALLE: Busca coincidencias parciales en la Principal o en CUALQUIER Secundaria
-                if (calle) {
-                    const matchPrincipal = (edif.CALLE || "").toUpperCase().includes(calle);
-                    const matchSecundaria = edif.DIRECCIONES_SECUNDARIAS.some(sec => (sec.CALLE || "").toUpperCase().includes(calle));
-                    if (!matchPrincipal && !matchSecundaria) return false;
-                }
+                // 2. Filtros a nivel de dirección (Calle y Altura deben coincidir en la MISMA dirección)
+                if (calle || altura) {
+                    
+                    // Función que evalúa si una puerta específica cumple ambos filtros a la vez
+                    const esLaPuertaCorrecta = (dirCalle, dirAltura) => {
+                        const strCalle = String(dirCalle || "").toUpperCase();
+                        const strAltura = String(dirAltura || "");
+                        
+                        let pasaCalle = true;
+                        if (calle && !strCalle.includes(calle)) pasaCalle = false;
+                        
+                        let pasaAltura = true;
+                        if (altura && !strAltura.startsWith(altura)) pasaAltura = false; // "81" trae 810, 811... pero NO 2810
+                        
+                        return pasaCalle && pasaAltura;
+                    };
 
-                // ALTURA: Búsqueda progresiva en la Principal o en CUALQUIER Secundaria
-                if (altura) {
-                    const matchPrincipal = String(edif.ALTURA || "").startsWith(altura);
-                    const matchSecundaria = edif.DIRECCIONES_SECUNDARIAS.some(sec => String(sec.ALTURA || "").startsWith(altura));
+                    // Revisamos si la dirección principal es la correcta
+                    const matchPrincipal = esLaPuertaCorrecta(edif.CALLE, edif.ALTURA);
+                    
+                    // Revisamos si ALGUNA de las direcciones secundarias es la correcta
+                    const matchSecundaria = edif.DIRECCIONES_SECUNDARIAS.some(sec => esLaPuertaCorrecta(sec.CALLE, sec.ALTURA));
+
+                    // Si ni la principal ni ninguna secundaria coinciden exactamente, lo ocultamos
                     if (!matchPrincipal && !matchSecundaria) return false;
                 }
                 
@@ -131,7 +142,7 @@
 
             const maxResultados = 150;
             if (resultados.length > maxResultados) {
-                document.getElementById('resultados-count').innerHTML = `<span class="text-red-500 font-bold">¡Demasiados resultados (${resultados.length})!</span> Mostrando los primeros ${maxResultados} para cuidar la memoria. Refiná tu búsqueda.`;
+                document.getElementById('resultados-count').innerHTML = `<span class="text-red-500 font-bold">¡Demasiados resultados (${resultados.length})!</span> Mostrando los primeros ${maxResultados}. Refiná tu búsqueda.`;
                 renderTarjetas(resultados.slice(0, maxResultados));
             } else {
                 document.getElementById('resultados-count').innerText = `Resultados encontrados: ${resultados.length}`;
