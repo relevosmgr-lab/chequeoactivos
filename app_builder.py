@@ -50,7 +50,7 @@ def procesar_datos():
     print(f" -> JSON generado con {len(df_app)} activos.")
 
 def generar_html():
-    print("4. Generando index.html...")
+    print("4. Generando index.html con auditoría...")
     html_content = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -63,11 +63,7 @@ def generar_html():
             theme: {
                 extend: {
                     colors: {
-                        personal: {
-                            navy: '#001A70',
-                            cyan: '#00A1E4',
-                            hover: '#008bc2'
-                        }
+                        personal: { navy: '#001A70', cyan: '#00A1E4', hover: '#008bc2' }
                     }
                 }
             }
@@ -77,7 +73,7 @@ def generar_html():
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
-        import { getFirestore, doc, getDoc, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
+        import { getFirestore, doc, getDoc, setDoc, deleteDoc, getDocs, collection } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
         // ⚠️ PEGAR AQUÍ TU CONFIGURACIÓN DE FIREBASE ⚠️
         const firebaseConfig = {
@@ -98,7 +94,9 @@ def generar_html():
         const GAS_URL = "https://script.google.com/macros/s/AKfycbw6x0HZIsnlqKOpiKS2813hRKWRBMGELrjDrL99EqCn-Ayq_AIz4SdvLMcTVFbw_2vr6w/exec";
 
         let maestroDatos = [];
+        let mapaRelevos = {}; // Memoria caché para búsquedas rápidas
         let usuarioActual = null;
+        let rolUsuario = "nuevo";
 
         onAuthStateChanged(auth, async (user) => {
             if (user) {
@@ -109,11 +107,17 @@ def generar_html():
                 const userSnap = await getDoc(userRef);
                 
                 if (userSnap.exists()) {
-                    const rol = userSnap.data().rol;
-                    if (rol === "autorizado" || rol === "superadmin") {
+                    rolUsuario = userSnap.data().rol;
+                    if (["autorizado", "supervisor", "superadmin"].includes(rolUsuario)) {
                         document.getElementById('app-screen').classList.remove('hidden');
                         document.getElementById('warning-screen').classList.add('hidden');
-                        document.getElementById('user-email').innerText = user.email;
+                        document.getElementById('user-email').innerText = `${user.email} (${rolUsuario.toUpperCase()})`;
+                        
+                        // Habilitar panel de auditoría si corresponde
+                        if (rolUsuario === "supervisor" || rolUsuario === "superadmin") {
+                            document.getElementById('panel-auditoria').classList.remove('hidden');
+                        }
+                        
                         cargarDatosJSON(); 
                     } else {
                         document.getElementById('warning-screen').classList.remove('hidden');
@@ -143,56 +147,82 @@ def generar_html():
             }
         }
 
-        window.aplicarFiltros = () => {
+        // Descarga el estado de relevamientos para poder filtrar rápido
+        async function actualizarMapaRelevos() {
+            const querySnapshot = await getDocs(collection(db, "relevamientos"));
+            mapaRelevos = {};
+            querySnapshot.forEach((doc) => {
+                mapaRelevos[doc.id] = doc.data();
+            });
+        }
+
+        window.aplicarFiltros = async () => {
+            const btnBuscar = document.getElementById('btn-buscar');
+            btnBuscar.innerText = "Sincronizando y buscando...";
+            
+            // Refrescar estado de relevamientos desde Firestore
+            await actualizarMapaRelevos();
+
             const subregion = document.getElementById('filt-subregion').value;
             const pd = document.getElementById('filt-pd').value.trim().toUpperCase();
             const pc = document.getElementById('filt-pc').value.trim().toUpperCase();
             const nap = document.getElementById('filt-nap').value.trim().toUpperCase();
             const calle = document.getElementById('filt-calle').value.trim().toUpperCase();
             const altura = document.getElementById('filt-altura').value.trim();
+            const estConst = document.getElementById('filt-estado-const').value.toUpperCase();
+            const estRelevo = document.getElementById('filt-estado-relevo').value;
+            const auditor = document.getElementById('filt-auditor').value.trim().toLowerCase();
 
-            if (!subregion && !pd && !pc && !nap && !calle && !altura) {
+            if (!subregion && !pd && !pc && !nap && !calle && !altura && !estConst && !estRelevo && !auditor) {
                 alert("Por favor, ingrese al menos un filtro para buscar.");
+                btnBuscar.innerText = "BUSCAR DIRECCIONES";
                 return;
             }
 
             const resultados = maestroDatos.filter(edif => {
-                // 1. Filtros a nivel de edificio
+                // Filtros de Maestro
                 if (subregion && edif.SUBREGION_OORR !== subregion) return false;
                 if (pd && edif.PD !== pd) return false;
                 if (pc && edif.PC !== pc) return false;
                 if (nap && !(edif.NAP || "").toUpperCase().includes(nap)) return false;
+                if (estConst && (edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "").toUpperCase() !== estConst) return false;
 
-                // 2. Filtros a nivel de dirección (Calle y Altura deben coincidir en la MISMA dirección)
+                // Filtros de Estado de Relevamiento (Firestore)
+                const datosRelevo = mapaRelevos[edif.ACTIVO];
+                const estaRelevado = !!datosRelevo;
+                
+                if (estRelevo === "RELEVADO" && !estaRelevado) return false;
+                if (estRelevo === "PENDIENTE" && estaRelevado) return false;
+                
+                // Filtro Auditoría
+                if (auditor) {
+                    if (!estaRelevado) return false;
+                    if (!(datosRelevo.tecnico || "").toLowerCase().includes(auditor)) return false;
+                }
+
+                // Filtro exacto de Puerta (Calle y Altura)
                 if (calle || altura) {
-                    
-                    // Función que evalúa si una puerta específica cumple ambos filtros a la vez
                     const esLaPuertaCorrecta = (dirCalle, dirAltura) => {
                         const strCalle = String(dirCalle || "").toUpperCase();
                         const strAltura = String(dirAltura || "");
-                        
                         let pasaCalle = true;
                         if (calle && !strCalle.includes(calle)) pasaCalle = false;
-                        
                         let pasaAltura = true;
-                        if (altura && !strAltura.startsWith(altura)) pasaAltura = false; // "81" trae 810, 811... pero NO 2810
-                        
+                        if (altura && !strAltura.startsWith(altura)) pasaAltura = false;
                         return pasaCalle && pasaAltura;
                     };
 
-                    // Revisamos si la dirección principal es la correcta
                     const matchPrincipal = esLaPuertaCorrecta(edif.CALLE, edif.ALTURA);
-                    
-                    // Revisamos si ALGUNA de las direcciones secundarias es la correcta
                     const matchSecundaria = edif.DIRECCIONES_SECUNDARIAS.some(sec => esLaPuertaCorrecta(sec.CALLE, sec.ALTURA));
 
-                    // Si ni la principal ni ninguna secundaria coinciden exactamente, lo ocultamos
                     if (!matchPrincipal && !matchSecundaria) return false;
                 }
                 
                 return true;
             });
 
+            btnBuscar.innerText = "BUSCAR DIRECCIONES";
+            
             const maxResultados = 150;
             if (resultados.length > maxResultados) {
                 document.getElementById('resultados-count').innerHTML = `<span class="text-red-500 font-bold">¡Demasiados resultados (${resultados.length})!</span> Mostrando los primeros ${maxResultados}. Refiná tu búsqueda.`;
@@ -203,27 +233,44 @@ def generar_html():
             }
         };
 
-        async function renderTarjetas(datosFiltrados) {
+        function renderTarjetas(datosFiltrados) {
             const container = document.getElementById('cards-container');
             container.innerHTML = '';
             
             if (datosFiltrados.length === 0) {
-                container.innerHTML = '<p class="text-center text-gray-500 mt-8">No se encontraron direcciones.</p>';
+                container.innerHTML = '<p class="text-center text-gray-500 mt-8 font-semibold">No se encontraron direcciones.</p>';
                 return;
             }
 
             for (const edif of datosFiltrados) {
-                const relevoRef = doc(db, "relevamientos", edif.ACTIVO);
-                const relevoSnap = await getDoc(relevoRef);
-                const estaRelevado = relevoSnap.exists();
-                const datosRelevo = estaRelevado ? relevoSnap.data() : null;
-
-                const card = document.createElement('div');
-                card.className = `p-4 border rounded-xl shadow-sm mb-4 ${estaRelevado ? 'bg-green-50 border-green-500' : 'bg-white border-gray-200'}`;
+                // En vez de preguntar a la base, leemos el mapa caché
+                const datosRelevo = mapaRelevos[edif.ACTIVO];
+                const estaRelevado = !!datosRelevo;
                 
-                // --- SANGRADO Y ESTILO DE DIRECCIONES SECUNDARIAS ---
+                const card = document.createElement('div');
+                const estado = (edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "DESCONOCIDO").toUpperCase();
+                
+                let cardStyle = "";
+                let badgeStyle = "";
+                
+                if (estaRelevado) {
+                    cardStyle = "bg-green-50 border-green-500";
+                    badgeStyle = "bg-green-500 text-white";
+                } else if (estado === "CONSTRUIDO") {
+                    cardStyle = "bg-blue-50 border-personal-cyan";
+                    badgeStyle = "bg-personal-cyan text-white";
+                } else if (estado.includes("CONSTRUIR")) {
+                    cardStyle = "bg-amber-50 border-amber-500";
+                    badgeStyle = "bg-amber-500 text-white";
+                } else {
+                    cardStyle = "bg-white border-gray-400";
+                    badgeStyle = "bg-gray-500 text-white";
+                }
+
+                card.className = `p-4 rounded-xl shadow-md mb-4 border-l-4 ${cardStyle} transition-all relative`;
+                
                 let htmlSecundarias = edif.DIRECCIONES_SECUNDARIAS.length > 0 
-                    ? `<div class="mt-2 ml-4 pl-3 border-l-2 border-personal-cyan">
+                    ? `<div class="mt-2 ml-4 pl-3 border-l-2 border-gray-300">
                         <span class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Direcciones Secundarias:</span>
                         <ul class="text-xs text-gray-700 mt-1 space-y-1">
                             ${edif.DIRECCIONES_SECUNDARIAS.map(s => `<li>• ${s.CALLE} <b>${s.ALTURA}</b></li>`).join('')}
@@ -234,54 +281,53 @@ def generar_html():
                 if (estaRelevado) {
                     card.innerHTML = `
                         <div class="flex justify-between items-center mb-1">
-                            <span class="text-xs font-bold text-gray-400">ID: ${edif.ACTIVO} | NAP: ${edif.NAP}</span>
+                            <span class="text-xs font-bold text-gray-500">ID: ${edif.ACTIVO} | NAP: ${edif.NAP}</span>
+                            <span class="text-[10px] font-bold px-2 py-1 rounded shadow-sm tracking-wide ${badgeStyle}">RELEVADO</span>
                         </div>
-                        <h3 class="text-xl font-bold text-personal-navy">${edif.CALLE} ${edif.ALTURA}</h3>
+                        <h3 class="text-xl font-bold text-gray-800">${edif.CALLE} ${edif.ALTURA}</h3>
                         ${htmlSecundarias}
-                        <div class="my-3 p-3 bg-green-100 rounded border border-green-200">
-                            <p class="text-green-800 font-bold text-sm">✅ ${datosRelevo.accion}</p>
-                            <p class="text-green-700 text-xs mt-1">Relevado por: ${datosRelevo.tecnico}<br>Fecha: ${datosRelevo.fecha}</p>
+                        <div class="my-3 p-3 bg-white rounded border border-green-200 shadow-sm">
+                            <p class="text-green-700 font-extrabold text-sm">✅ Acción: ${datosRelevo.accion}</p>
+                            <p class="text-gray-600 text-xs mt-1">Por: <b>${datosRelevo.tecnico}</b><br>Fecha: ${datosRelevo.fecha}</p>
                         </div>
-                        <button onclick="deshacerRelevo('${edif.ACTIVO}')" class="w-full mt-2 text-sm text-red-600 font-semibold py-2 border border-red-200 rounded hover:bg-red-50">Deshacer / Editar</button>
+                        <button onclick="deshacerRelevo('${edif.ACTIVO}')" class="w-full mt-2 text-sm text-red-600 font-bold py-2 border border-red-200 bg-white rounded-lg shadow-sm hover:bg-red-50 transition">Deshacer / Editar</button>
                     `;
                 } else {
-                    const esConstruido = edif.ESTADO_CONSTRUCTIVO_EDIFICIO === "CONSTRUIDO";
                     let opcionesSelect = `
                         <option value="">Seleccione Acción...</option>
                         <option value="CORREGIR ALTURA">Corregir Altura</option>
                         <option value="UNIFICAR DIRECCIONES">Unificar Direcciones</option>
                         <option value="NO ESTA CONSTRUIDO">No está construido / Obra</option>
                     `;
-                    if (!esConstruido) {
+                    if (estado !== "CONSTRUIDO") {
                         opcionesSelect += `
                             <option value="INFORMAR CONSTRUIDO">Informar Construido</option>
                             <option value="NO ES EDIFICIO">No es Edificio</option>
                             <option value="IMPOSIBLE CONSTRUIR">Imposible Construir</option>
                             <option value="COMPETENCIA">Competencia</option>
+                            <option value="NO EXISTE ALTURA">No existe altura</option>
                         `;
                     }
 
                     card.innerHTML = `
                         <div class="flex justify-between items-center mb-1">
                             <span class="text-xs font-bold text-gray-500">ID: ${edif.ACTIVO} | NAP: ${edif.NAP}</span>
-                            <span class="text-[10px] font-bold bg-gray-200 text-gray-700 px-2 py-1 rounded tracking-wide">${edif.ESTADO_CONSTRUCTIVO_EDIFICIO}</span>
+                            <span class="text-[10px] font-bold px-2 py-1 rounded shadow-sm tracking-wide ${badgeStyle}">${edif.ESTADO_CONSTRUCTIVO_EDIFICIO}</span>
                         </div>
                         <h3 class="text-xl font-bold text-personal-navy">${edif.CALLE} ${edif.ALTURA}</h3>
-                        <p class="text-xs text-gray-500 mb-2">${edif.CIUDAD}, ${edif.PARTIDO}</p>
+                        <p class="text-xs text-gray-500 mb-2 font-medium">${edif.CIUDAD}, ${edif.PARTIDO}</p>
                         ${htmlSecundarias}
                         
-                        <div class="mt-4 space-y-2">
-                            <select id="accion-${edif.ACTIVO}" class="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-personal-cyan outline-none">
+                        <div class="mt-4 space-y-2 bg-white/50 p-3 rounded-lg border border-gray-100">
+                            <select id="accion-${edif.ACTIVO}" class="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-personal-cyan outline-none font-medium text-gray-700">
                                 ${opcionesSelect}
                             </select>
                             <input type="text" id="obs-${edif.ACTIVO}" placeholder="Observación (Obligatoria)" class="w-full p-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-personal-cyan outline-none">
-                            
-                            <div class="flex items-center justify-between bg-gray-50 border border-gray-200 p-2 rounded-lg">
-                                <label class="text-xs font-semibold text-gray-600 w-1/3">Adjuntar Fotos:</label>
-                                <input type="file" id="fotos-${edif.ACTIVO}" multiple accept="image/*" class="w-2/3 text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-personal-cyan file:text-white hover:file:bg-personal-hover">
+                            <div class="flex items-center justify-between bg-white border border-gray-300 p-2 rounded-lg">
+                                <label class="text-xs font-bold text-gray-500 w-1/3">Cámara/Fotos:</label>
+                                <input type="file" id="fotos-${edif.ACTIVO}" multiple accept="image/*" class="w-2/3 text-xs file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-personal-cyan file:text-white hover:file:bg-personal-hover cursor-pointer">
                             </div>
-                            
-                            <button onclick="enviarRelevo('${edif.ACTIVO}')" class="w-full bg-personal-cyan text-white p-3 rounded-lg font-bold shadow-md hover:bg-personal-hover transition mt-2">ENVIAR RELEVAMIENTO</button>
+                            <button onclick="enviarRelevo('${edif.ACTIVO}')" class="w-full bg-personal-cyan text-white p-3 rounded-lg font-bold shadow-md hover:bg-personal-hover transition mt-2 tracking-wide">ENVIAR RELEVAMIENTO</button>
                         </div>
                     `;
                 }
@@ -298,16 +344,13 @@ def generar_html():
             if (inputFotos.files.length > 8) { alert("Máximo 8 fotos permitidas."); return; }
 
             const btn = event.target;
-            btn.innerText = "Procesando..."; 
-            btn.classList.add('opacity-75', 'cursor-not-allowed');
-            btn.disabled = true;
+            btn.innerText = "Procesando..."; btn.classList.add('opacity-75', 'cursor-not-allowed'); btn.disabled = true;
 
             try {
                 let fotosB64 = [];
                 for (let i = 0; i < inputFotos.files.length; i++) {
                     fotosB64.push(await comprimirImagen(inputFotos.files[i]));
                 }
-
                 const payload = {
                     fecha: new Date().toLocaleString("es-AR"), tecnico: usuarioActual.email,
                     activo: activo, accion: accion, observacion: obs, fotos: fotosB64
@@ -340,14 +383,11 @@ def generar_html():
 
         function comprimirImagen(file) {
             return new Promise((resolve) => {
-                const reader = new FileReader();
-                reader.readAsDataURL(file);
+                const reader = new FileReader(); reader.readAsDataURL(file);
                 reader.onload = (e) => {
-                    const img = new Image();
-                    img.src = e.target.result;
+                    const img = new Image(); img.src = e.target.result;
                     img.onload = () => {
-                        const canvas = document.createElement('canvas');
-                        const scaleSize = 800 / img.width;
+                        const canvas = document.createElement('canvas'); const scaleSize = 800 / img.width;
                         canvas.width = 800; canvas.height = img.height * scaleSize;
                         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
                         resolve(canvas.toDataURL('image/jpeg', 0.7)); 
@@ -374,7 +414,7 @@ def generar_html():
     </div>
 
     <div id="app-screen" class="hidden max-w-md mx-auto bg-gray-100 min-h-screen flex flex-col">
-        <div class="bg-personal-navy text-white px-4 py-3 sticky top-0 z-20 flex justify-between items-center border-b-4 border-personal-cyan">
+        <div class="bg-personal-navy text-white px-4 py-3 sticky top-0 z-20 flex justify-between items-center border-b-4 border-personal-cyan shadow-md">
             <div>
                 <h1 class="font-bold tracking-wide">Telecom <span class="text-personal-cyan">Relevo</span></h1>
                 <p id="user-email" class="text-[10px] text-gray-300"></p>
@@ -384,7 +424,7 @@ def generar_html():
 
         <div class="bg-white shadow-sm z-10 p-4 border-b">
             <div class="flex justify-between items-center mb-3">
-                <h2 class="font-bold text-personal-navy text-sm">Buscador</h2>
+                <h2 class="font-bold text-personal-navy text-sm">Buscador Operativo</h2>
                 <span id="status-db" class="text-[10px] text-gray-400">Cargando...</span>
             </div>
             
@@ -405,16 +445,25 @@ def generar_html():
 
             <div class="grid grid-cols-2 gap-3 mb-3">
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">PC</label>
-                    <input type="text" id="filt-pc" placeholder="Ej: VCRGB" maxlength="5" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Estado Const.</label>
+                    <select id="filt-estado-const" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm">
+                        <option value="">Todos</option>
+                        <option value="CONSTRUIDO">Construido</option>
+                        <option value="A CONSTRUIR">A Construir</option>
+                        <option value="SIN ESTADO">Sin Estado</option>
+                    </select>
                 </div>
                 <div>
-                    <label class="block text-[10px] font-bold text-gray-500 uppercase">NAP</label>
-                    <input type="text" id="filt-nap" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Estado Relevo</label>
+                    <select id="filt-estado-relevo" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm">
+                        <option value="">Todos</option>
+                        <option value="PENDIENTE">Falta Relevar</option>
+                        <option value="RELEVADO">Relevado</option>
+                    </select>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-3 mb-4">
+            <div class="grid grid-cols-2 gap-3 mb-3">
                 <div>
                     <label class="block text-[10px] font-bold text-gray-500 uppercase">Calle</label>
                     <input type="text" id="filt-calle" placeholder="Nombre" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase">
@@ -425,7 +474,15 @@ def generar_html():
                 </div>
             </div>
 
-            <button onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow">BUSCAR DIRECCIONES</button>
+            <div id="panel-auditoria" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <label class="block text-[10px] font-bold text-amber-800 uppercase mb-1">🔍 Panel Supervisor: Relevado por</label>
+                <input type="text" id="filt-auditor" placeholder="Ej: jlopez@teco.com.ar" class="w-full p-2 border border-amber-300 rounded bg-white text-sm">
+            </div>
+
+            <div class="hidden">
+                <input type="text" id="filt-pc"><input type="text" id="filt-nap"> </div>
+
+            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow flex justify-center items-center">BUSCAR DIRECCIONES</button>
         </div>
 
         <div class="bg-gray-100 flex-1 p-4 pb-20">
