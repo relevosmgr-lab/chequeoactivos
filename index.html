@@ -16,13 +16,12 @@
 
         // ⚠️ PEGAR AQUÍ TU CONFIGURACIÓN DE FIREBASE ⚠️
         const firebaseConfig = {
-        apiKey: "AIzaSyC1yyZ2N3t8nbtgECkshjl4MBgnjOtJj7M",
-        authDomain: "relevos-9645a.firebaseapp.com",
-        projectId: "relevos-9645a",
-        storageBucket: "relevos-9645a.firebasestorage.app",
-        messagingSenderId: "816456413666",
-        appId: "1:816456413666:web:b0202740d9cb40a6f309bb",
-        measurementId: "G-XXC9KMQZB2"
+            apiKey: "TU_API_KEY",
+            authDomain: "TU_PROYECTO.firebaseapp.com",
+            projectId: "TU_PROYECTO",
+            storageBucket: "TU_PROYECTO.appspot.com",
+            messagingSenderId: "TUS_NUMEROS",
+            appId: "TU_APP_ID"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -36,12 +35,11 @@
         let usuarioActual = null;
         let rolUsuario = "nuevo";
 
-        // Variables de Memoria Local
         let resultadosActuales = [];
         let paginaActual = 1;
         const itemsPorPagina = 50;
         window.fotosActivos = {}; 
-        window.accionesPendientes = {}; // "Carrito" de acciones: { "ED-123": [{accion, obs}, ...] }
+        window.accionesPendientes = {}; 
 
         onAuthStateChanged(auth, async (user) => {
             if (user) {
@@ -118,7 +116,6 @@
                 
                 if (auditor) {
                     if (!estaRelevado) return false;
-                    // Buscar en el historial si el técnico participó
                     const historial = datosRelevo.historial || [datosRelevo];
                     const participo = historial.some(h => (h.tecnico || "").toLowerCase().includes(auditor));
                     if (!participo) return false;
@@ -222,9 +219,11 @@
                     <div class="mt-4 bg-white/50 p-3 rounded-lg border border-gray-200 shadow-inner">
                         <h4 class="text-xs font-bold text-personal-navy mb-2 flex items-center gap-1"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg> Sumar nueva acción</h4>
                         <div class="space-y-3">
-                            <select id="accion-${edif.ACTIVO}" onchange="manejarAccionesDinamicas('${edif.ACTIVO}')" class="w-full p-2 border border-gray-300 rounded text-sm bg-white focus:ring-1 focus:ring-personal-cyan outline-none font-medium">${opcionesSelect}</select>
+                            <select id="accion-${edif.ACTIVO}" onchange="manejarAccionesDinamicas('${edif.ACTIVO}')" class="w-full p-2 border border-gray-300 rounded text-sm bg-white focus:ring-1 focus:ring-personal-cyan outline-none font-medium text-personal-navy">${opcionesSelect}</select>
+                            
                             <div id="form-dinamico-${edif.ACTIVO}" class="hidden p-3 bg-blue-50 border border-blue-200 rounded-lg"></div>
-                            <input type="text" id="obs-${edif.ACTIVO}" placeholder="Observación adicional (Obligatoria)" class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-personal-cyan outline-none">
+                            
+                            <input type="text" id="obs-${edif.ACTIVO}" placeholder="Observación" class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-personal-cyan outline-none">
                             <button onclick="agregarAccionLista('${edif.ACTIVO}')" class="w-full bg-white border-2 border-personal-cyan text-personal-cyan font-bold py-1.5 rounded shadow-sm hover:bg-blue-50 text-sm transition">➕ Guardar Acción en Lista</button>
                         </div>
 
@@ -260,11 +259,13 @@
 
         window.cambiarPagina = (delta) => { paginaActual += delta; renderPagina(); };
 
-        // --- MANEJO DE FORMULARIOS DINÁMICOS ---
+        // --- MANEJO DE FORMULARIOS DINÁMICOS Y ALERTAS ---
         window.manejarAccionesDinamicas = (activo) => {
             const accion = document.getElementById(`accion-${activo}`).value;
             const container = document.getElementById(`form-dinamico-${activo}`);
-            
+            container.innerHTML = ''; 
+            container.classList.remove('hidden');
+
             if (accion === "CORREGIR ALTURA") {
                 container.innerHTML = `
                     <label class="block text-xs font-bold text-personal-navy mb-1">Altura correcta principal (*)</label>
@@ -277,12 +278,38 @@
                         <button type="button" onclick="sumarAlturaSecundaria('${activo}')" class="text-xs bg-white border-2 border-personal-cyan text-personal-cyan font-bold py-1.5 px-3 rounded w-max">+ Sumar otra altura</button>
                     </div>
                 `;
-                container.classList.remove('hidden');
+            } else if (accion === "UNIFICAR DIRECCIONES") {
+                container.innerHTML = `
+                    <label class="block text-xs font-bold text-personal-navy mb-1">Buscar dirección a unificar (*)</label>
+                    <div id="unificar-lista-${activo}" class="flex flex-col gap-2 mb-2"></div>
+                    <button type="button" onclick="agregarBuscadorUnificar('${activo}')" class="text-xs bg-white border-2 border-personal-cyan text-personal-cyan font-bold py-1.5 px-3 rounded w-max shadow-sm">+ Sumar dirección</button>
+                `;
+                agregarBuscadorUnificar(activo);
+            } else if (accion === "NO ES EDIFICIO") {
+                container.innerHTML = `
+                    <label class="block text-xs font-bold text-personal-navy mb-1">Tipo de inmueble (*)</label>
+                    <select id="tipo-inmueble-${activo}" class="w-full p-2 border rounded text-sm outline-none bg-white" onchange="verificarOtroInmueble('${activo}')">
+                        <option value="">Seleccione...</option>
+                        <option value="Casa">Casa</option>
+                        <option value="PH menor a 6 UF">PH menor a 6 UF</option>
+                        <option value="Comercio">Comercio</option>
+                        <option value="Baldío">Baldío</option>
+                        <option value="Otro">Otro</option>
+                    </select>
+                    <p id="leyenda-inmueble-${activo}" class="text-[10px] text-amber-600 font-bold hidden mt-1">⚠️ Aclare los detalles en la observación obligatoria.</p>
+                `;
+            } else if (accion === "IMPOSIBLE CONSTRUIR") {
+                container.innerHTML = `<p class="text-[11px] font-bold text-amber-600 uppercase">⚠️ Por favor, aclare el motivo exacto en la observación.</p>`;
+            } else if (accion === "COMPETENCIA") {
+                container.innerHTML = `<p class="text-[11px] font-bold text-amber-600 uppercase">⚠️ Aclare con qué empresa está armado en la observación.</p>`;
+            } else if (accion === "NO EXISTE ALTURA") {
+                container.innerHTML = `<p class="text-[11px] font-bold text-amber-600 uppercase">⚠️ Explique el motivo (Ej: Fue demolido, numeración saltada) en la observación.</p>`;
             } else {
-                container.innerHTML = ''; container.classList.add('hidden');
+                container.classList.add('hidden');
             }
         };
 
+        // -> Lógica CORREGIR ALTURA
         window.toggleOtrasAlturas = (activo) => {
             const chk = document.getElementById(`chk-otras-alt-${activo}`).checked;
             const container = document.getElementById(`otras-alturas-container-${activo}`);
@@ -291,12 +318,72 @@
                 if (document.getElementById(`lista-otras-alt-${activo}`).children.length === 0) sumarAlturaSecundaria(activo);
             } else { container.classList.add('hidden'); container.classList.remove('flex'); }
         };
-
         window.sumarAlturaSecundaria = (activo) => {
             const idRow = Date.now(); const lista = document.getElementById(`lista-otras-alt-${activo}`);
             const div = document.createElement('div'); div.className = "flex items-center gap-2"; div.id = `row-alt-${idRow}`;
             div.innerHTML = `<input type="number" class="w-full p-2 border rounded text-sm input-extra-alt-${activo}" placeholder="Ej: 3302"><button type="button" onclick="document.getElementById('row-alt-${idRow}').remove()" class="bg-red-500 text-white rounded p-2 text-xs font-bold">X</button>`;
             lista.appendChild(div);
+        };
+
+        // -> Lógica UNIFICAR DIRECCIONES
+        window.agregarBuscadorUnificar = (activo) => {
+            const idRow = Date.now();
+            const lista = document.getElementById(`unificar-lista-${activo}`);
+            const div = document.createElement('div');
+            div.className = "p-2 bg-white border border-gray-300 rounded shadow-sm flex flex-col gap-2";
+            div.id = `row-unif-${idRow}`;
+            div.innerHTML = `
+                <div class="flex gap-2">
+                    <input type="text" id="unif-calle-${idRow}" placeholder="Calle parcial" class="w-2/3 p-2 border rounded text-xs uppercase bg-gray-50">
+                    <input type="number" id="unif-alt-${idRow}" placeholder="Altura" class="w-1/3 p-2 border rounded text-xs bg-gray-50">
+                </div>
+                <div class="flex justify-between items-center">
+                    <button type="button" onclick="validarDireccionUnificar('${idRow}')" class="bg-blue-100 text-blue-800 px-3 py-1 rounded text-xs font-bold border border-blue-200 hover:bg-blue-200 transition">Validar</button>
+                    <span id="unif-status-${idRow}" class="text-[10px] font-bold text-gray-400" data-validado="false">Pendiente</span>
+                    <button type="button" onclick="document.getElementById('row-unif-${idRow}').remove()" class="text-red-500 font-extrabold text-xs px-2">X</button>
+                </div>
+            `;
+            lista.appendChild(div);
+        };
+
+        window.validarDireccionUnificar = (idRow) => {
+            const inputCalle = document.getElementById(`unif-calle-${idRow}`);
+            const calleTexto = inputCalle.value.trim().toUpperCase();
+            const altura = document.getElementById(`unif-alt-${idRow}`).value.trim();
+            const statusSpan = document.getElementById(`unif-status-${idRow}`);
+
+            if(!calleTexto || !altura) {
+                statusSpan.innerText = "⚠️ Faltan datos";
+                statusSpan.className = "text-[10px] font-bold text-red-500";
+                statusSpan.dataset.validado = "false"; return;
+            }
+
+            const encontrado = maestroDatos.find(edif => {
+                const matchPpal = (edif.CALLE || "").toUpperCase().includes(calleTexto) && String(edif.ALTURA) === altura;
+                const matchSec = edif.DIRECCIONES_SECUNDARIAS.some(sec => (sec.CALLE || "").toUpperCase().includes(calleTexto) && String(sec.ALTURA) === altura);
+                return matchPpal || matchSec;
+            });
+
+            if (encontrado) {
+                inputCalle.value = encontrado.CALLE; // Autocompleta la calle exacta encontrada
+                statusSpan.innerText = `✅ Validado (ID: ${encontrado.ACTIVO})`;
+                statusSpan.className = "text-[10px] font-bold text-green-600";
+                statusSpan.dataset.validado = "true";
+                statusSpan.dataset.activo = encontrado.ACTIVO;
+                statusSpan.dataset.str = `${encontrado.CALLE} ${altura}`;
+            } else {
+                statusSpan.innerText = "❌ No existe activo";
+                statusSpan.className = "text-[10px] font-bold text-red-500";
+                statusSpan.dataset.validado = "false";
+            }
+        };
+
+        // -> Lógica NO ES EDIFICIO
+        window.verificarOtroInmueble = (activo) => {
+            const val = document.getElementById(`tipo-inmueble-${activo}`).value;
+            const leyenda = document.getElementById(`leyenda-inmueble-${activo}`);
+            if(val === "Otro") leyenda.classList.remove('hidden');
+            else leyenda.classList.add('hidden');
         };
 
         // --- CARRITO DE ACCIONES ---
@@ -305,6 +392,7 @@
             let obsGeneral = document.getElementById(`obs-${activo}`).value.trim();
             if (!accion) { alert("Debe seleccionar una acción."); return; }
 
+            // Procesar y empaquetar datos dinámicos según la acción
             if (accion === "CORREGIR ALTURA") {
                 const altPpal = document.getElementById(`alt-ppal-${activo}`).value.trim();
                 if (!altPpal) { alert("Debe ingresar la altura correcta."); return; }
@@ -316,14 +404,34 @@
                     if (arrExtras.length > 0) extrasStr = ` | Secundarias: ${arrExtras.join(', ')}`;
                 }
                 obsGeneral = `[Nueva Altura: ${altPpal}${extrasStr}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
-            } else if (!obsGeneral) {
-                alert("La observación es obligatoria."); return;
+            
+            } else if (accion === "UNIFICAR DIRECCIONES") {
+                const statusSpans = document.getElementById(`unificar-lista-${activo}`).querySelectorAll('span[id^="unif-status-"]');
+                if(statusSpans.length === 0) { alert("Debe sumar al menos una dirección para unificar."); return; }
+                
+                let unificadas = []; let hayInvalidos = false;
+                statusSpans.forEach(span => {
+                    if (span.dataset.validado === "true") unificadas.push(`[${span.dataset.activo}] ${span.dataset.str}`);
+                    else hayInvalidos = true;
+                });
+                
+                if (hayInvalidos || unificadas.length === 0) { alert("Hay direcciones sin validar (❌). Por favor valídelas o elimínelas con la X antes de guardar."); return; }
+                obsGeneral = `[Unificar con: ${unificadas.join(', ')}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
+            
+            } else if (accion === "NO ES EDIFICIO") {
+                const tipoInm = document.getElementById(`tipo-inmueble-${activo}`).value;
+                if(!tipoInm) { alert("Debe seleccionar el tipo de inmueble."); return; }
+                if(tipoInm === "Otro" && !obsGeneral) { alert("Si elige 'Otro', la observación es obligatoria."); return; }
+                obsGeneral = `[Tipo: ${tipoInm}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
             }
 
-            // Agrega al "carrito"
+            // Validaciones de Observación obligatoria
+            if (!obsGeneral && ["IMPOSIBLE CONSTRUIR", "COMPETENCIA", "NO EXISTE ALTURA"].includes(accion)) {
+                alert("Para esta acción, la observación es obligatoria indicando los motivos."); return;
+            }
+
             window.accionesPendientes[activo].push({ accion: accion, observacion: obsGeneral });
             
-            // Limpia los inputs
             document.getElementById(`accion-${activo}`).value = '';
             document.getElementById(`obs-${activo}`).value = '';
             document.getElementById(`form-dinamico-${activo}`).innerHTML = '';
@@ -332,10 +440,7 @@
             renderAccionesLocales(activo);
         };
 
-        window.quitarAccionLocal = (activo, index) => {
-            window.accionesPendientes[activo].splice(index, 1);
-            renderAccionesLocales(activo);
-        };
+        window.quitarAccionLocal = (activo, index) => { window.accionesPendientes[activo].splice(index, 1); renderAccionesLocales(activo); };
 
         window.renderAccionesLocales = (activo) => {
             const container = document.getElementById(`pendientes-list-${activo}`);
@@ -353,7 +458,6 @@
                 </div>
             `).join('');
 
-            // Muestra u oculta el panel de cámara y envío final
             if (pend.length > 0) { panelEnvio.classList.remove('hidden'); } 
             else { panelEnvio.classList.add('hidden'); }
         };
@@ -384,11 +488,9 @@
             btn.innerText = "Subiendo fotos y datos..."; btn.classList.add('opacity-75', 'cursor-not-allowed'); btn.disabled = true;
 
             try {
-                // Agrupar las acciones en un solo string para el Excel (GAS)
                 const accionString = pend.map(p => p.accion).join(' + ');
                 const obsString = pend.map(p => `[${p.accion}] ${p.observacion}`).join(' | ');
                 const fotosB64 = window.fotosActivos[activo] || [];
-                
                 const fechaActual = new Date().toLocaleString("es-AR");
 
                 const payload = {
@@ -396,32 +498,21 @@
                     activo: activo, accion: accionString, observacion: obsString, fotos: fotosB64
                 };
 
-                // Enviar a Google Drive / Sheet
                 const response = await fetch(GAS_URL, { method: 'POST', body: JSON.stringify(payload) });
                 const result = await response.json();
                 
                 if(result.status === "success") {
-                    // Guardar Historial en Firestore
                     const docRef = doc(db, "relevamientos", activo);
                     let nuevoHistorial = [];
-                    if (mapaRelevos[activo] && mapaRelevos[activo].historial) {
-                        nuevoHistorial = mapaRelevos[activo].historial;
-                    } else if (mapaRelevos[activo]) {
-                        nuevoHistorial = [mapaRelevos[activo]]; // Backup por si era formato viejo
-                    }
+                    if (mapaRelevos[activo] && mapaRelevos[activo].historial) nuevoHistorial = mapaRelevos[activo].historial;
+                    else if (mapaRelevos[activo]) nuevoHistorial = [mapaRelevos[activo]]; 
                     
-                    // Sumamos las nuevas acciones individualmente al historial
-                    pend.forEach(p => {
-                        nuevoHistorial.push({ accion: p.accion, observacion: p.observacion, fecha: fechaActual, tecnico: payload.tecnico });
-                    });
+                    pend.forEach(p => { nuevoHistorial.push({ accion: p.accion, observacion: p.observacion, fecha: fechaActual, tecnico: payload.tecnico }); });
 
                     await setDoc(docRef, { historial: nuevoHistorial });
 
-                    // Limpiar memoria
-                    window.accionesPendientes[activo] = [];
-                    window.fotosActivos[activo] = []; 
-                    
-                    aplicarFiltros(); // Refrescar vista
+                    window.accionesPendientes[activo] = []; window.fotosActivos[activo] = []; 
+                    aplicarFiltros(); 
                 } else {
                     alert("Error en servidor: " + result.message);
                     btn.innerText = "🚀 ENVIAR RELEVAMIENTO COMPLETO"; btn.disabled = false; btn.classList.remove('opacity-75');
