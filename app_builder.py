@@ -58,7 +58,7 @@ def procesar_datos():
     print(f" -> JSON generado con {len(df_app)} activos operativos y con calle definida.")
 
 def generar_html():
-    print("4. Generando index.html con guardado de direcciones en Firestore...")
+    print("4. Generando index.html con acción de Contacto...")
     html_content = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -301,7 +301,14 @@ def generar_html():
                     `;
                 }
 
-                let opcionesSelect = `<option value="">Seleccione Acción...</option><option value="CORREGIR ALTURA">Corregir Altura</option><option value="UNIFICAR DIRECCIONES">Unificar Direcciones</option><option value="NO ESTA CONSTRUIDO">No está construido / Obra</option>`;
+                // NUEVA ACCIÓN SUMADA ACÁ
+                let opcionesSelect = `
+                    <option value="">Seleccione Acción...</option>
+                    <option value="CORREGIR ALTURA">Corregir Altura</option>
+                    <option value="UNIFICAR DIRECCIONES">Unificar Direcciones</option>
+                    <option value="INFORMAR CONTACTO">Informar contacto para armado</option>
+                    <option value="NO ESTA CONSTRUIDO">No está construido / Obra</option>
+                `;
                 if (estado !== "CONSTRUIDO") opcionesSelect += `<option value="INFORMAR CONSTRUIDO">Informar Construido</option><option value="NO ES EDIFICIO">No es Edificio</option><option value="IMPOSIBLE CONSTRUIR">Imposible Construir</option><option value="COMPETENCIA">Competencia</option><option value="NO EXISTE ALTURA">No existe altura</option>`;
 
                 card.innerHTML = `
@@ -320,7 +327,7 @@ def generar_html():
                             
                             <div id="form-dinamico-${edif.ACTIVO}" class="hidden p-3 bg-blue-50 border border-blue-200 rounded-lg"></div>
                             
-                            <input type="text" id="obs-${edif.ACTIVO}" placeholder="Observación" class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-personal-cyan outline-none">
+                            <input type="text" id="obs-${edif.ACTIVO}" placeholder="Observación adicional" class="w-full p-2 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-personal-cyan outline-none">
                             <button onclick="agregarAccionLista('${edif.ACTIVO}')" class="w-full bg-white border-2 border-personal-cyan text-personal-cyan font-bold py-1.5 rounded shadow-sm hover:bg-blue-50 text-sm transition">➕ Guardar Acción en Lista</button>
                         </div>
 
@@ -393,6 +400,33 @@ def generar_html():
                         <option value="Otro">Otro</option>
                     </select>
                     <p id="leyenda-inmueble-${activo}" class="text-[10px] text-amber-600 font-bold hidden mt-1">⚠️ Aclare los detalles en la observación obligatoria.</p>
+                `;
+            } else if (accion === "INFORMAR CONTACTO") { // FORMULARIO NUEVO
+                container.innerHTML = `
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                            <label class="block text-xs font-bold text-personal-navy mb-1">Nombre (*)</label>
+                            <input type="text" id="cont-nombre-${activo}" class="w-full p-2 border rounded text-sm outline-none focus:ring-1 focus:ring-personal-cyan">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-personal-navy mb-1">Teléfono (*)</label>
+                            <input type="text" id="cont-tel-${activo}" class="w-full p-2 border rounded text-sm outline-none focus:ring-1 focus:ring-personal-cyan">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">Piso (Opcional)</label>
+                            <input type="text" id="cont-piso-${activo}" class="w-full p-2 border rounded text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-gray-500 mb-1">Depto (Opcional)</label>
+                            <input type="text" id="cont-depto-${activo}" class="w-full p-2 border rounded text-sm outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-gray-500 mb-1">Email (Opcional)</label>
+                        <input type="email" id="cont-mail-${activo}" class="w-full p-2 border rounded text-sm outline-none">
+                    </div>
                 `;
             } else if (accion === "IMPOSIBLE CONSTRUIR") {
                 container.innerHTML = `<p class="text-[11px] font-bold text-amber-600 uppercase">⚠️ Por favor, aclare el motivo exacto en la observación.</p>`;
@@ -502,6 +536,22 @@ def generar_html():
                 if(!tipoInm) { alert("Debe seleccionar el tipo de inmueble."); return; }
                 if(tipoInm === "Otro" && !obsGeneral) { alert("Si elige 'Otro', la observación es obligatoria."); return; }
                 obsGeneral = `[Tipo: ${tipoInm}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
+                
+            } else if (accion === "INFORMAR CONTACTO") { // LÓGICA DE CAPTURA NUEVA
+                const nombre = document.getElementById(`cont-nombre-${activo}`).value.trim();
+                const tel = document.getElementById(`cont-tel-${activo}`).value.trim();
+                const piso = document.getElementById(`cont-piso-${activo}`).value.trim();
+                const depto = document.getElementById(`cont-depto-${activo}`).value.trim();
+                const mail = document.getElementById(`cont-mail-${activo}`).value.trim();
+
+                if (!nombre || !tel) { alert("El Nombre y el Teléfono son campos obligatorios para informar un contacto."); return; }
+
+                let datosContacto = `Nombre: ${nombre} | Tel: ${tel}`;
+                if (piso) datosContacto += ` | Piso: ${piso}`;
+                if (depto) datosContacto += ` | Depto: ${depto}`;
+                if (mail) datosContacto += ` | Mail: ${mail}`;
+
+                obsGeneral = `[Contacto: ${datosContacto}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
             }
 
             if (!obsGeneral && ["IMPOSIBLE CONSTRUIR", "COMPETENCIA", "NO EXISTE ALTURA"].includes(accion)) {
@@ -578,13 +628,11 @@ def generar_html():
                     
                     pend.forEach(p => { nuevoHistorial.push({ accion: p.accion, observacion: p.observacion, fecha: fechaActual, tecnico: payload.tecnico }); });
 
-                    // BUSCAR DIRECCION Y NAP PARA GUARDAR EN LA RAIZ DE FIRESTORE
                     const edifInfo = maestroDatos.find(e => e.ACTIVO === activo);
                     const dirGuardar = edifInfo ? (edifInfo.CALLE + ' ' + edifInfo.ALTURA) : "S/D";
                     const pdGuardar = edifInfo ? edifInfo.PD : "S/D";
                     const napGuardar = edifInfo ? edifInfo.NAP : "S/D";
 
-                    // Usamos { merge: true } por si queremos mantener otros campos futuros
                     await setDoc(docRef, { 
                         historial: nuevoHistorial,
                         direccion: dirGuardar,
@@ -671,7 +719,7 @@ def generar_html():
                 <label class="block text-[10px] font-bold text-amber-800 uppercase mb-1">🔍 Panel Supervisor: Relevado por</label><input type="text" id="filt-auditor" placeholder="Ej: jlopez@teco.com.ar" class="w-full p-2 border border-amber-300 rounded bg-white text-sm">
             </div>
 
-            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow hover:bg-blue-900 transition">BUSCAR DIRECCIONES</button>
+            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow flex justify-center items-center hover:bg-blue-900 transition">BUSCAR DIRECCIONES</button>
         </div>
 
         <div class="bg-gray-100 flex-1 p-4 pb-20">
