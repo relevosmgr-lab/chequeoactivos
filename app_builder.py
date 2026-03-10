@@ -58,7 +58,7 @@ def procesar_datos():
     print(f" -> JSON generado con {len(df_app)} activos operativos y con calle definida.")
 
 def generar_html():
-    print("4. Generando index.html con estados constructivos dinámicos...")
+    print("4. Generando index.html con guardado de direcciones en Firestore...")
     html_content = """<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -77,13 +77,12 @@ def generar_html():
 
         // ⚠️ PEGAR AQUÍ TU CONFIGURACIÓN DE FIREBASE ⚠️
         const firebaseConfig = {
-        apiKey: "AIzaSyC1yyZ2N3t8nbtgECkshjl4MBgnjOtJj7M",
-        authDomain: "relevos-9645a.firebaseapp.com",
-        projectId: "relevos-9645a",
-        storageBucket: "relevos-9645a.firebasestorage.app",
-        messagingSenderId: "816456413666",
-        appId: "1:816456413666:web:b0202740d9cb40a6f309bb",
-        measurementId: "G-XXC9KMQZB2"
+            apiKey: "TU_API_KEY",
+            authDomain: "TU_PROYECTO.firebaseapp.com",
+            projectId: "TU_PROYECTO",
+            storageBucket: "TU_PROYECTO.appspot.com",
+            messagingSenderId: "TUS_NUMEROS",
+            appId: "TU_APP_ID"
         };
 
         const app = initializeApp(firebaseConfig);
@@ -140,12 +139,10 @@ def generar_html():
                 maestroDatos = await response.json();
                 document.getElementById('status-db').innerText = `Base lista (${maestroDatos.length} activos)`;
 
-                // 1. EXTRAER TODOS LOS ESTADOS CONSTRUCTIVOS DINÁMICAMENTE
                 const estadosSet = new Set();
                 maestroDatos.forEach(edif => estadosSet.add((edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "SIN ESTADO").toUpperCase()));
                 const estadosArr = Array.from(estadosSet).sort();
                 
-                // 2. DIBUJAR CHECKBOXES (Destildando "CONSTRUIDO")
                 const drop = document.getElementById('dropdown-estados');
                 drop.innerHTML = '';
                 estadosArr.forEach(est => {
@@ -158,7 +155,6 @@ def generar_html():
                     `;
                 });
 
-                // Cierra el menú al hacer clic afuera
                 document.addEventListener('click', (e) => {
                     const dropMenu = document.getElementById('dropdown-estados');
                     const btnDrop = dropMenu.previousElementSibling;
@@ -184,7 +180,6 @@ def generar_html():
             const subregion = document.getElementById('filt-subregion').value;
             const pd = document.getElementById('filt-pd').value.trim().toUpperCase();
             
-            // 3. CAPTURAR ESTADOS SELECCIONADOS DEL DROPDOWN
             const chks = document.querySelectorAll('.chk-estado:checked');
             const estadosSeleccionados = Array.from(chks).map(c => c.value);
 
@@ -207,7 +202,6 @@ def generar_html():
                 if (subregion && edif.SUBREGION_OORR !== subregion) return false;
                 if (pd && edif.PD !== pd) return false;
                 
-                // Filtro de estado múltiple
                 const estadoEdif = (edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "SIN ESTADO").toUpperCase();
                 if (!estadosSeleccionados.includes(estadoEdif)) return false;
 
@@ -583,7 +577,20 @@ def generar_html():
                     
                     pend.forEach(p => { nuevoHistorial.push({ accion: p.accion, observacion: p.observacion, fecha: fechaActual, tecnico: payload.tecnico }); });
 
-                    await setDoc(docRef, { historial: nuevoHistorial });
+                    // BUSCAR DIRECCION Y NAP PARA GUARDAR EN LA RAIZ DE FIRESTORE
+                    const edifInfo = maestroDatos.find(e => e.ACTIVO === activo);
+                    const dirGuardar = edifInfo ? (edifInfo.CALLE + ' ' + edifInfo.ALTURA) : "S/D";
+                    const pdGuardar = edifInfo ? edifInfo.PD : "S/D";
+                    const napGuardar = edifInfo ? edifInfo.NAP : "S/D";
+
+                    // Usamos { merge: true } por si queremos mantener otros campos futuros
+                    await setDoc(docRef, { 
+                        historial: nuevoHistorial,
+                        direccion: dirGuardar,
+                        pd: pdGuardar,
+                        nap: napGuardar
+                    }, { merge: true });
+
                     window.accionesPendientes[activo] = []; window.fotosActivos[activo] = []; 
                     aplicarFiltros(); 
                 } else {
@@ -663,7 +670,7 @@ def generar_html():
                 <label class="block text-[10px] font-bold text-amber-800 uppercase mb-1">🔍 Panel Supervisor: Relevado por</label><input type="text" id="filt-auditor" placeholder="Ej: jlopez@teco.com.ar" class="w-full p-2 border border-amber-300 rounded bg-white text-sm">
             </div>
 
-            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow flex justify-center items-center hover:bg-blue-900 transition">BUSCAR DIRECCIONES</button>
+            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow hover:bg-blue-900 transition">BUSCAR DIRECCIONES</button>
         </div>
 
         <div class="bg-gray-100 flex-1 p-4 pb-20">
