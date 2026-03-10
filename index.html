@@ -78,6 +78,34 @@
                 const response = await fetch('./Maestro_Edificios_CABA_App.json?t=' + new Date().getTime());
                 maestroDatos = await response.json();
                 document.getElementById('status-db').innerText = `Base lista (${maestroDatos.length} activos)`;
+
+                // 1. EXTRAER TODOS LOS ESTADOS CONSTRUCTIVOS DINÁMICAMENTE
+                const estadosSet = new Set();
+                maestroDatos.forEach(edif => estadosSet.add((edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "SIN ESTADO").toUpperCase()));
+                const estadosArr = Array.from(estadosSet).sort();
+                
+                // 2. DIBUJAR CHECKBOXES (Destildando "CONSTRUIDO")
+                const drop = document.getElementById('dropdown-estados');
+                drop.innerHTML = '';
+                estadosArr.forEach(est => {
+                    const checked = (est === "CONSTRUIDO") ? "" : "checked";
+                    drop.innerHTML += `
+                        <label class="flex items-center gap-2 p-1.5 hover:bg-blue-50 cursor-pointer rounded">
+                            <input type="checkbox" value="${est}" class="chk-estado w-4 h-4 text-personal-cyan rounded border-gray-300" ${checked}> 
+                            <span class="truncate font-semibold text-gray-700">${est}</span>
+                        </label>
+                    `;
+                });
+
+                // Cierra el menú al hacer clic afuera
+                document.addEventListener('click', (e) => {
+                    const dropMenu = document.getElementById('dropdown-estados');
+                    const btnDrop = dropMenu.previousElementSibling;
+                    if (!dropMenu.contains(e.target) && !btnDrop.contains(e.target)) {
+                        dropMenu.classList.add('hidden');
+                    }
+                });
+
             } catch (error) { document.getElementById('status-db').innerHTML = '<span class="text-red-500">Error en carga</span>'; }
         }
 
@@ -94,21 +122,33 @@
 
             const subregion = document.getElementById('filt-subregion').value;
             const pd = document.getElementById('filt-pd').value.trim().toUpperCase();
-            const estConst = document.getElementById('filt-estado-const').value.toUpperCase();
+            
+            // 3. CAPTURAR ESTADOS SELECCIONADOS DEL DROPDOWN
+            const chks = document.querySelectorAll('.chk-estado:checked');
+            const estadosSeleccionados = Array.from(chks).map(c => c.value);
+
             const estRelevo = document.getElementById('filt-estado-relevo').value;
             const calle = document.getElementById('filt-calle').value.trim().toUpperCase();
             const altura = document.getElementById('filt-altura').value.trim();
             const auditor = document.getElementById('filt-auditor').value.trim().toLowerCase();
 
-            if (!subregion && !pd && !calle && !altura && !estConst && !estRelevo && !auditor) {
-                alert("Por favor, ingrese al menos un filtro para buscar.");
+            if (!subregion && !pd && !calle && !altura && !estRelevo && !auditor) {
+                alert("Por favor, ingrese al menos un filtro de texto (PD, Calle, etc.) para no saturar la búsqueda.");
+                btnBuscar.innerText = "BUSCAR DIRECCIONES"; return;
+            }
+
+            if (estadosSeleccionados.length === 0) {
+                alert("Debe seleccionar al menos un Estado Constructivo para buscar.");
                 btnBuscar.innerText = "BUSCAR DIRECCIONES"; return;
             }
 
             let resultados = maestroDatos.filter(edif => {
                 if (subregion && edif.SUBREGION_OORR !== subregion) return false;
                 if (pd && edif.PD !== pd) return false;
-                if (estConst && (edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "").toUpperCase() !== estConst) return false;
+                
+                // Filtro de estado múltiple
+                const estadoEdif = (edif.ESTADO_CONSTRUCTIVO_EDIFICIO || "SIN ESTADO").toUpperCase();
+                if (!estadosSeleccionados.includes(estadoEdif)) return false;
 
                 const datosRelevo = mapaRelevos[edif.ACTIVO];
                 const estaRelevado = !!datosRelevo;
@@ -260,7 +300,6 @@
 
         window.cambiarPagina = (delta) => { paginaActual += delta; renderPagina(); };
 
-        // --- MANEJO DE FORMULARIOS DINÁMICOS Y ALERTAS ---
         window.manejarAccionesDinamicas = (activo) => {
             const accion = document.getElementById(`accion-${activo}`).value;
             const container = document.getElementById(`form-dinamico-${activo}`);
@@ -310,7 +349,6 @@
             }
         };
 
-        // -> Lógica CORREGIR ALTURA
         window.toggleOtrasAlturas = (activo) => {
             const chk = document.getElementById(`chk-otras-alt-${activo}`).checked;
             const container = document.getElementById(`otras-alturas-container-${activo}`);
@@ -326,13 +364,9 @@
             lista.appendChild(div);
         };
 
-        // -> Lógica UNIFICAR DIRECCIONES
         window.agregarBuscadorUnificar = (activo) => {
-            const idRow = Date.now();
-            const lista = document.getElementById(`unificar-lista-${activo}`);
-            const div = document.createElement('div');
-            div.className = "p-2 bg-white border border-gray-300 rounded shadow-sm flex flex-col gap-2";
-            div.id = `row-unif-${idRow}`;
+            const idRow = Date.now(); const lista = document.getElementById(`unificar-lista-${activo}`);
+            const div = document.createElement('div'); div.className = "p-2 bg-white border border-gray-300 rounded shadow-sm flex flex-col gap-2"; div.id = `row-unif-${idRow}`;
             div.innerHTML = `
                 <div class="flex gap-2">
                     <input type="text" id="unif-calle-${idRow}" placeholder="Calle parcial" class="w-2/3 p-2 border rounded text-xs uppercase bg-gray-50">
@@ -354,9 +388,7 @@
             const statusSpan = document.getElementById(`unif-status-${idRow}`);
 
             if(!calleTexto || !altura) {
-                statusSpan.innerText = "⚠️ Faltan datos";
-                statusSpan.className = "text-[10px] font-bold text-red-500";
-                statusSpan.dataset.validado = "false"; return;
+                statusSpan.innerText = "⚠️ Faltan datos"; statusSpan.className = "text-[10px] font-bold text-red-500"; statusSpan.dataset.validado = "false"; return;
             }
 
             const encontrado = maestroDatos.find(edif => {
@@ -366,39 +398,30 @@
             });
 
             if (encontrado) {
-                inputCalle.value = encontrado.CALLE; // Autocompleta la calle exacta encontrada
+                inputCalle.value = encontrado.CALLE; 
                 statusSpan.innerText = `✅ Validado (ID: ${encontrado.ACTIVO})`;
                 statusSpan.className = "text-[10px] font-bold text-green-600";
-                statusSpan.dataset.validado = "true";
-                statusSpan.dataset.activo = encontrado.ACTIVO;
-                statusSpan.dataset.str = `${encontrado.CALLE} ${altura}`;
+                statusSpan.dataset.validado = "true"; statusSpan.dataset.activo = encontrado.ACTIVO; statusSpan.dataset.str = `${encontrado.CALLE} ${altura}`;
             } else {
-                statusSpan.innerText = "❌ No existe activo";
-                statusSpan.className = "text-[10px] font-bold text-red-500";
-                statusSpan.dataset.validado = "false";
+                statusSpan.innerText = "❌ No existe activo"; statusSpan.className = "text-[10px] font-bold text-red-500"; statusSpan.dataset.validado = "false";
             }
         };
 
-        // -> Lógica NO ES EDIFICIO
         window.verificarOtroInmueble = (activo) => {
             const val = document.getElementById(`tipo-inmueble-${activo}`).value;
             const leyenda = document.getElementById(`leyenda-inmueble-${activo}`);
-            if(val === "Otro") leyenda.classList.remove('hidden');
-            else leyenda.classList.add('hidden');
+            if(val === "Otro") leyenda.classList.remove('hidden'); else leyenda.classList.add('hidden');
         };
 
-        // --- CARRITO DE ACCIONES ---
         window.agregarAccionLista = (activo) => {
             const accion = document.getElementById(`accion-${activo}`).value;
             let obsGeneral = document.getElementById(`obs-${activo}`).value.trim();
             if (!accion) { alert("Debe seleccionar una acción."); return; }
 
-            // Procesar y empaquetar datos dinámicos según la acción
             if (accion === "CORREGIR ALTURA") {
                 const altPpal = document.getElementById(`alt-ppal-${activo}`).value.trim();
                 if (!altPpal) { alert("Debe ingresar la altura correcta."); return; }
-                let extrasStr = "";
-                const chkOtras = document.getElementById(`chk-otras-alt-${activo}`);
+                let extrasStr = ""; const chkOtras = document.getElementById(`chk-otras-alt-${activo}`);
                 if (chkOtras && chkOtras.checked) {
                     const extraInputs = document.querySelectorAll(`.input-extra-alt-${activo}`);
                     let arrExtras = []; extraInputs.forEach(i => { if(i.value.trim()) arrExtras.push(i.value.trim()); });
@@ -415,8 +438,7 @@
                     if (span.dataset.validado === "true") unificadas.push(`[${span.dataset.activo}] ${span.dataset.str}`);
                     else hayInvalidos = true;
                 });
-                
-                if (hayInvalidos || unificadas.length === 0) { alert("Hay direcciones sin validar (❌). Por favor valídelas o elimínelas con la X antes de guardar."); return; }
+                if (hayInvalidos || unificadas.length === 0) { alert("Hay direcciones sin validar (❌). Valídelas o bórrelas antes de guardar."); return; }
                 obsGeneral = `[Unificar con: ${unificadas.join(', ')}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
             
             } else if (accion === "NO ES EDIFICIO") {
@@ -426,18 +448,14 @@
                 obsGeneral = `[Tipo: ${tipoInm}] ${obsGeneral ? '- Obs: ' + obsGeneral : ''}`;
             }
 
-            // Validaciones de Observación obligatoria
             if (!obsGeneral && ["IMPOSIBLE CONSTRUIR", "COMPETENCIA", "NO EXISTE ALTURA"].includes(accion)) {
                 alert("Para esta acción, la observación es obligatoria indicando los motivos."); return;
             }
 
-            window.accionesPendientes[activo].push({ accion: accion, observacion: obsGeneral });
+            window.accionesPendientes[activo].push({ accion: accion, observacion: obsGeneral || "Sin observación adicional" });
             
-            document.getElementById(`accion-${activo}`).value = '';
-            document.getElementById(`obs-${activo}`).value = '';
-            document.getElementById(`form-dinamico-${activo}`).innerHTML = '';
-            document.getElementById(`form-dinamico-${activo}`).classList.add('hidden');
-            
+            document.getElementById(`accion-${activo}`).value = ''; document.getElementById(`obs-${activo}`).value = '';
+            document.getElementById(`form-dinamico-${activo}`).innerHTML = ''; document.getElementById(`form-dinamico-${activo}`).classList.add('hidden');
             renderAccionesLocales(activo);
         };
 
@@ -451,19 +469,14 @@
             if(!container) return;
             container.innerHTML = pend.map((p, i) => `
                 <div class="flex justify-between items-center bg-blue-50 border border-blue-200 p-2 rounded text-sm shadow-sm">
-                    <div class="flex-1">
-                        <span class="font-bold text-personal-navy text-[11px] uppercase">${p.accion}</span><br>
-                        <span class="text-[10px] text-gray-600">${p.observacion}</span>
-                    </div>
+                    <div class="flex-1"><span class="font-bold text-personal-navy text-[11px] uppercase">${p.accion}</span><br><span class="text-[10px] text-gray-600">${p.observacion}</span></div>
                     <button onclick="quitarAccionLocal('${activo}', ${i})" class="text-red-500 font-extrabold px-3 py-1 text-xs hover:bg-red-100 rounded">X</button>
                 </div>
             `).join('');
 
-            if (pend.length > 0) { panelEnvio.classList.remove('hidden'); } 
-            else { panelEnvio.classList.add('hidden'); }
+            if (pend.length > 0) panelEnvio.classList.remove('hidden'); else panelEnvio.classList.add('hidden');
         };
 
-        // --- FOTOS ---
         window.agregarFotos = async (activo, files) => {
             if (!files || files.length === 0) return;
             let currentFotos = window.fotosActivos[activo] || [];
@@ -480,7 +493,6 @@
             document.getElementById(`count-${activo}`).innerText = `${(window.fotosActivos[activo] || []).length}/15`;
         };
 
-        // --- ENVÍO DE DATOS FINAL ---
         window.enviarRelevoFinal = async (activo) => {
             const pend = window.accionesPendientes[activo] || [];
             if (pend.length === 0) { alert("No hay acciones para enviar."); return; }
@@ -511,7 +523,6 @@
                     pend.forEach(p => { nuevoHistorial.push({ accion: p.accion, observacion: p.observacion, fecha: fechaActual, tecnico: payload.tecnico }); });
 
                     await setDoc(docRef, { historial: nuevoHistorial });
-
                     window.accionesPendientes[activo] = []; window.fotosActivos[activo] = []; 
                     aplicarFiltros(); 
                 } else {
@@ -563,31 +574,45 @@
             <div class="flex justify-between items-center mb-3">
                 <h2 class="font-bold text-personal-navy text-sm">Buscador Operativo</h2><span id="status-db" class="text-[10px] text-gray-400">Cargando...</span>
             </div>
+            
             <div class="grid grid-cols-2 gap-3 mb-3">
                 <div><label class="block text-[10px] font-bold text-gray-500 uppercase">Subregión</label><select id="filt-subregion" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm"><option value="">Todas</option><option value="CAPITAL NORTE">Capital Norte</option><option value="CAPITAL SUR">Capital Sur</option></select></div>
                 <div><label class="block text-[10px] font-bold text-gray-500 uppercase">PD</label><input type="text" id="filt-pd" placeholder="Ej: VCRG" maxlength="4" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase"></div>
             </div>
+
             <div class="grid grid-cols-2 gap-3 mb-3">
-                <div><label class="block text-[10px] font-bold text-gray-500 uppercase">Estado Const.</label><select id="filt-estado-const" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm"><option value="">Todos</option><option value="CONSTRUIDO">Construido</option><option value="A CONSTRUIR">A Construir</option><option value="SIN ESTADO">Sin Estado</option></select></div>
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase">Estado Const.</label>
+                    <div class="relative">
+                        <button type="button" onclick="document.getElementById('dropdown-estados').classList.toggle('hidden')" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm text-left flex justify-between items-center font-bold text-personal-navy">
+                            <span class="truncate">Filtrar Estados...</span> <span>▼</span>
+                        </button>
+                        <div id="dropdown-estados" class="hidden absolute z-30 w-full bg-white border border-gray-300 shadow-xl max-h-48 overflow-y-auto p-2 mt-1 rounded-lg text-xs"></div>
+                    </div>
+                </div>
                 <div><label class="block text-[10px] font-bold text-gray-500 uppercase">Estado Relevo</label><select id="filt-estado-relevo" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm font-bold text-personal-navy"><option value="">Todos</option><option value="PENDIENTE" selected>Falta Relevar</option><option value="RELEVADO">Relevado</option></select></div>
             </div>
+
             <div class="grid grid-cols-2 gap-3 mb-3">
                 <div><label class="block text-[10px] font-bold text-gray-500 uppercase">Calle</label><input type="text" id="filt-calle" placeholder="Nombre" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm uppercase"></div>
                 <div><label class="block text-[10px] font-bold text-gray-500 uppercase">Altura</label><input type="number" id="filt-altura" placeholder="Ej: 33" class="w-full mt-1 p-2 border rounded bg-gray-50 text-sm"></div>
             </div>
+
             <div id="panel-auditoria" class="hidden mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
                 <label class="block text-[10px] font-bold text-amber-800 uppercase mb-1">🔍 Panel Supervisor: Relevado por</label><input type="text" id="filt-auditor" placeholder="Ej: jlopez@teco.com.ar" class="w-full p-2 border border-amber-300 rounded bg-white text-sm">
             </div>
-            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow hover:bg-blue-900 transition">BUSCAR DIRECCIONES</button>
+
+            <button id="btn-buscar" onclick="aplicarFiltros()" class="w-full bg-personal-navy text-white font-bold py-2.5 rounded shadow flex justify-center items-center hover:bg-blue-900 transition">BUSCAR DIRECCIONES</button>
         </div>
 
         <div class="bg-gray-100 flex-1 p-4 pb-20">
             <p id="resultados-count" class="text-xs text-gray-500 font-bold mb-3 text-center tracking-wide">Use los filtros para buscar</p>
             <div id="cards-container"></div>
+            
             <div id="pagination-controls" class="hidden mt-6 flex justify-between items-center bg-white p-2 rounded shadow-sm border border-gray-200">
-                <button id="btn-prev" onclick="cambiarPagina(-1)" class="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm font-bold disabled:opacity-30">Anterior</button>
+                <button id="btn-prev" onclick="cambiarPagina(-1)" class="px-4 py-2 bg-gray-200 text-gray-700 rounded text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed">Anterior</button>
                 <span id="page-indicator" class="text-xs font-bold text-personal-navy">Pág 1/10</span>
-                <button id="btn-next" onclick="cambiarPagina(1)" class="px-4 py-2 bg-personal-cyan text-white rounded text-sm font-bold disabled:opacity-30">Siguiente</button>
+                <button id="btn-next" onclick="cambiarPagina(1)" class="px-4 py-2 bg-personal-cyan text-white rounded text-sm font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-personal-hover">Siguiente</button>
             </div>
         </div>
     </div>
